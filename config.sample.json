@@ -1,0 +1,23 @@
+{
+    "openai_api_key": "",
+    "openrouter_api_key": "",
+    "openrouter_endpoint"",
+    "model_name": "",
+    "voicevox_url": "",
+    "voicevox_speaker_id": 46,
+    "unity_url": "",
+    "emotion_url": "",
+    "sample_rate": 16000,
+    "channels": 1,
+    "max_record_seconds": 6.0,
+    "silence_threshold": 0.008,
+    "silence_limit_seconds": 0.8,
+    "user_name": "",
+    "apps": {
+        "電卓": "calc.exe",
+        "設定": "start ms-settings:",
+        "ブラウザ": "start C:\\Users\\bobbi\\AppData\\Local\\Vivaldi\\Application\\vivaldi.exe",
+        "エクスプローラー": "explorer.exe",
+        "パスワード管理": ""
+    }
+}

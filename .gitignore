@@ -1,0 +1,28 @@
+# --- セキュリティ（絶対公開しない！） ---
+config.json
+.env
+
+# --- Pythonの一時ファイル ---
+__pycache__/
+*.py[cod]
+venv/
+.vscode/
+
+# --- 重いメディアファイル ---
+songs/
+*.wav
+*.txt
+
+temp_input.wav
+
+# --- その他 ---
+.DS_Store
+
+# （...これまでの内容はそのまま...）
+
+# --- Unity Build Files (絶対アップロードしない！) ---
+UnityApp/
+*.exe
+*.dll
+*.pdb
+
