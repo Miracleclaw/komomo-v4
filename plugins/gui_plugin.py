@@ -30,7 +30,7 @@ class Plugin:
         
         self.WIN_W = 480
         self.WIN_H_STARTUP = 640   
-        self.WIN_H_EXPANDED = 920  # ログ拡大に合わせてさらに大きく
+        self.WIN_H_EXPANDED = 920
 
         self.colors = {
             "bg": "#FFF0F5",
@@ -66,7 +66,7 @@ class Plugin:
 
     def _run_gui(self):
         self.root = tk.Tk()
-        self.VERSION = "v4.0"
+        self.VERSION = "v4.1.8"
         self._update_title()
         self.root.geometry(f"{self.WIN_W}x{self.WIN_H_STARTUP}")
         self.root.configure(bg=self.colors["bg"])
@@ -80,31 +80,45 @@ class Plugin:
         self._load_assets()
         if "icon" in self.assets: self.root.iconphoto(False, self.assets["icon"])
 
+        # フッター・設定ボタン
         self.footer_frame = tk.Frame(self.root, bg=self.colors["bg"])
         self.footer_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
         btn_conf = tk.Button(self.footer_frame, command=self._request_settings, bg=self.colors["bg"], 
-                             relief="flat", bd=0, activebackground=self.colors["bg"])
+                               relief="flat", bd=0, activebackground=self.colors["bg"])
         if "gear" in self.assets: btn_conf.config(image=self.assets["gear"])
         else: btn_conf.config(text="⚙ 設定", font=self.small_font)
         btn_conf.pack(side=tk.RIGHT)
 
+        # ヘッダー
         header_frame = tk.Frame(self.root, bg=self.colors["bg"])
         header_frame.pack(fill=tk.X, padx=10, pady=10, anchor="w")
         if "icon" in self.assets: tk.Label(header_frame, image=self.assets["icon"], bg=self.colors["bg"]).pack(side=tk.LEFT, padx=(0, 5))
         if "name" in self.assets: tk.Label(header_frame, image=self.assets["name"], bg=self.colors["bg"]).pack(side=tk.LEFT, padx=(0, 5))
         tk.Label(header_frame, text=f"{self.VERSION} - {self.config.get('user_name', 'User')}", 
-                 bg=self.colors["bg"], fg=self.colors["fg_text"], font=self.header_font).pack(side=tk.LEFT)
+                   bg=self.colors["bg"], fg=self.colors["fg_text"], font=self.header_font).pack(side=tk.LEFT)
 
+        # ステータス表示
         self.status_var = tk.StringVar(value="スタンバイ OK ✨")
         self.lbl_status = tk.Label(self.root, textvariable=self.status_var, font=self.status_font, 
-                                   fg=self.colors["status_fg"], bg=self.colors["bg"], compound="center")
+                                    fg=self.colors["status_fg"], bg=self.colors["bg"], compound="center")
         if "status_bg" in self.assets: self.lbl_status.config(image=self.assets["status_bg"])
         self.lbl_status.pack(pady=20)
 
-        self.btn_rec = tk.Button(self.root, command=self._on_record_click, bg=self.colors["bg"], relief="flat", bd=0)
+        # 録音ボタン (長押し対応)
+        self.btn_rec = tk.Button(self.root, bg=self.colors["bg"], relief="flat", bd=0)
         if "mic" in self.assets: self.btn_rec.config(image=self.assets["mic"])
         self.btn_rec.pack(pady=5)
+        
+        # --- 可愛い説明ラベル ---
+        self.lbl_guide = tk.Label(self.root, text="ぎゅっと押している間、きかせてね ♡", 
+                                  font=self.small_font, fg="#FF69B4", bg=self.colors["bg"])
+        self.lbl_guide.pack(pady=(0, 10))
 
+        # --- 長押しイベントのバインド ---
+        self.btn_rec.bind("<ButtonPress-1>", self._on_mic_pressed)
+        self.btn_rec.bind("<ButtonRelease-1>", self._on_mic_released)
+
+        # テキスト入力エリア
         input_frame = tk.Frame(self.root, bg=self.colors["bg"])
         input_frame.pack(fill=tk.X, padx=40, pady=5)
         self.entry_var = tk.StringVar()
@@ -113,20 +127,38 @@ class Plugin:
         self.entry_box.bind("<Return>", self._on_submit)
         tk.Button(input_frame, text="送信", command=self._on_submit, bg="#FFB6C1", fg="white", font=self.main_font, relief="flat", padx=10).pack(side=tk.LEFT, padx=(5, 0))
 
+        # ログボタン
         self.btn_log = tk.Button(self.root, command=self._toggle_log_panel, bg=self.colors["bg"], relief="flat", bd=0)
         if "log_btn" in self.assets: self.btn_log.config(image=self.assets["log_btn"])
         self.btn_log.pack(pady=5)
 
+        # ログエリア
         self.log_frame = tk.Frame(self.root, bg=self.colors["bg"])
-        # 高さを 10 に拡大
         self.chat_area = scrolledtext.ScrolledText(self.log_frame, state='disabled', bg=self.colors["log_bg"], 
-                                                   fg="#333333", font=self.main_font, bd=0, padx=10, pady=5, height=10)
+                                                    fg="#333333", font=self.main_font, bd=0, padx=10, pady=5, height=10)
         self.chat_area.pack(fill=tk.X, expand=True, padx=20, pady=5)
         self.chat_area.tag_config("user", foreground=self.colors["user_text"], justify="right")
         self.chat_area.tag_config("bot", foreground=self.colors["bot_text"], justify="left")
 
         self.root.after(100, self._check_queue)
         self.root.mainloop()
+
+    # --- 録音制御ロジック (Push-to-Talk) ---
+    def _on_mic_pressed(self, event):
+        if not self.is_recording_ui:
+            self.is_recording_ui = True
+            self.status_var.set("🔴 録音中...")
+            self.btn_rec.config(relief="sunken", bg="#FFC0CB")
+            if self.pm:
+                self.pm.hook.start_recording()
+
+    def _on_mic_released(self, event):
+        if self.is_recording_ui:
+            self.is_recording_ui = False
+            self.status_var.set("解析中... 🔍")
+            self.btn_rec.config(relief="flat", bg=self.colors["bg"])
+            if self.pm:
+                self.pm.hook.stop_recording()
 
     def _update_title(self):
         user_name = self.config.get("user_name", "ユーザー")
@@ -175,7 +207,9 @@ class Plugin:
                 elif m_type == "lyrics": self._show_lyric_window(content)
                 elif m_type == "rec_state":
                     self.is_recording_ui = content
-                    if not content: self.status_var.set("スタンバイ OK ✨"); self.btn_rec.config(relief="flat", bg=self.colors["bg"])
+                    if not content: 
+                        self.status_var.set("スタンバイ OK ✨")
+                        self.btn_rec.config(relief="flat", bg=self.colors["bg"])
                 elif m_type == "bot": self._append_log("bot", content); self.status_var.set("スタンバイ OK ✨")
                 elif m_type == "user": self._append_log("user", content)
         except: pass
@@ -204,20 +238,9 @@ class Plugin:
             threading.Thread(target=lambda: self.pm.hook.on_query_received(text=t), daemon=True).start()
         return "break"
 
-    def _on_record_click(self):
-        if not self.is_recording_ui:
-            self.is_recording_ui = True; self.status_var.set("🔴 録音中..."); self.btn_rec.config(relief="sunken", bg="#FFC0CB")
-            self.pm.hook.on_start_recording_requested()
-        else:
-            self.is_recording_ui = False; self.status_var.set("解析中... 🔍"); self.btn_rec.config(relief="flat", bg=self.colors["bg"])
-            self.pm.hook.on_stop_recording_requested()
-
     def _request_settings(self):
-        print("[GUI] Settings Button Clicked") # ログに出ます
         if self.pm:
-            # こももに一言喋らせる
             self.msg_queue.put(("bot", "設定画面を開くね。何か変えるのかな？"))
-            # ここで settings_plugin を呼び出す
             self.pm.hook.on_open_settings_requested(root_window=self.root)
 
     def _on_close(self):

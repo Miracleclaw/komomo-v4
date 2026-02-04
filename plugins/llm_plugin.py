@@ -1,4 +1,3 @@
-import re  # ← 【重要】これを1行目に確実に配置しました
 import pluggy
 from openai import OpenAI
 from google import genai
