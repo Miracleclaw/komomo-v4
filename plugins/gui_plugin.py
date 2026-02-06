@@ -64,6 +64,16 @@ class GUIPlugin:
             self.msg_queue.put(("bot", response_text))
             self.msg_queue.put(("status", "おしゃべり中 🗣️"))
 
+    def update_status(self, text):
+        """外部（LLM等）からGUIのステータス表示を更新するための窓口"""
+        if hasattr(self, 'status_var') and self.status_var:
+            # TkinterのStringVarを更新（スレッドセーフを考慮してafterを使うのが理想的）
+            if self.root:
+                self.root.after(0, lambda: self.status_var.set(text))
+            else:
+                self.status_var.set(text)
+            print(f"[GUI] Status Update: {text}")
+
     def _run_gui(self):
         self.root = tk.Tk()
         self.VERSION = "v4.1.9"

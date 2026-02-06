@@ -53,8 +53,21 @@ class EgoPlugin:
         with open(self.memory_path, "w", encoding="utf-8") as f:
             json.dump(self.memory, f, indent=4, ensure_ascii=False)
 
-    def _send_to_unity(self, emotion_id):
+# plugins/ego_plugin.py の _send_to_unity 修正版
+
+def _send_to_unity(self, emotion_id):
+        """UnityへJSON形式で表情IDを送信"""
         try:
-            requests.post("http://localhost:5000/emotion", json={"id": emotion_id}, timeout=1)
-        except:
-            pass
+            # Unityが待ち受けているURL
+            unity_url = "http://127.0.0.1:58080/play/"
+            # Unity側のRequestJsonクラスに合わせたJSONペイロード
+            payload = {
+                "action": "expression",
+                "index": int(emotion_id)
+            }
+            # POSTで送信
+            import requests
+            requests.post(unity_url, json=payload, timeout=5)
+            print(f"[Ego] Unityへ表情ID {emotion_id} を送信しました")
+        except Exception as e:
+            print(f"[Ego] Unity表情送信エラー: {e}")

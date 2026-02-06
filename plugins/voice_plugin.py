@@ -1,7 +1,5 @@
 import requests
 import json
-import pygame
-import tempfile
 import os
 import time
 
@@ -9,15 +7,19 @@ class VoicePlugin:
     def __init__(self, config, gui):
         self.config = config
         self.gui = gui
+        # VoiceVox設定
         self.speaker_id = config.get("voicevox_speaker_id", 46)
         self.base_url = config.get("voicevox_url", "http://localhost:50021")
-        # pygameのミキサーを初期化
-        pygame.mixer.init()
-        print("[VoicePlugin] v4.1.9 Initialized (using pygame)")
+        # Unity待受設定 (AudioLipSync.cs の HttpListener に合わせる)
+        self.unity_url = "http://127.0.0.1:58080/play/"
+        
+        # 不要になったpygameの初期化を削除
+        print("[VoicePlugin] v4.3.2 Initialized (Unity-Sync Mode)")
 
     def speak(self, text):
-        if not text: return
-        print(f"[Voice] 発声リクエスト: {text[:20]}...")
+        if not text:
+            return
+        print(f"[Voice] 発声リクエスト (Unity送信): {text[:20]}...")
         
         try:
             # 1. 音声合成用クエリ作成
@@ -40,28 +42,20 @@ class VoicePlugin:
                 print(f"[Voice] Synthesis Error: {synthesis_res.status_code}")
                 return
 
-            # 3. 再生 (pygame)
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                f.write(synthesis_res.content)
-                temp_path = f.name
-            
+            # 3. Unityへの送信 (口パク・再生用)
+            # Python側では鳴らさず、Unityの HttpListener へバイナリを POST する
             try:
-                pygame.mixer.music.load(temp_path)
-                pygame.mixer.music.play()
-                # 再生が終わるまで待機
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-                pygame.mixer.music.unload() # ファイルを解放
-            except Exception as e:
-                print(f"[Voice] Playback Error: {e}")
-            finally:
-                if os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except:
-                        pass # 使用中の場合はスキップ
-            
-            print("[Voice] 再生完了")
+                # Unity側(AudioLipSync.cs)は受信したデータを AudioClip に変換して再生する
+                res = requests.post(self.unity_url, data=synthesis_res.content, timeout=5)
+                if res.status_code == 200:
+                    print("[Voice] Unityへ音声データを送信しました。再生と口パクを開始します。")
+                else:
+                    print(f"[Voice] Unity HTTP Error: {res.status_code}")
+            except Exception as ue:
+                print(f"[Voice] Unity連携エラー (Unityは起動していますか？): {ue}")
+
+            # 4. 完了通知 (メインスレッドをブロックしない)
+            print("[Voice] リクエスト処理完了")
 
         except Exception as e:
-            print(f"[Voice] Error: VoiceVoxの起動確認をしてください。({e})")
+            print(f"[Voice] Error: {e}")
