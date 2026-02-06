@@ -3,7 +3,9 @@ import pluggy
 hookspec = pluggy.HookspecMarker("komomo")
 
 class KomomoSpecs:
-    # ... (既存のフック) ...
+    @hookspec
+    def on_plugin_loaded(self, pm):
+        """プラグインロード完了時の通知"""
 
     @hookspec
     def on_query_received(self, text: str):

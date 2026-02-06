@@ -8,8 +8,8 @@ import torch
 
 hookimpl = pluggy.HookimplMarker("komomo")
 
-class Plugin:
-    def __init__(self, config):
+class STTPlugin:
+    def __init__(self, config, gui):
         self.config = config
         self.pm = None
         self.recognizer = sr.Recognizer()

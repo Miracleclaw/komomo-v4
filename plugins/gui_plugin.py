@@ -16,8 +16,8 @@ else:
     BASE_DIR = os.getcwd()
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
 
-class Plugin:
-    def __init__(self, config):
+class GUIPlugin:
+    def __init__(self, config, system):
         self.config = config
         self.pm = None
         self.root = None
@@ -66,7 +66,7 @@ class Plugin:
 
     def _run_gui(self):
         self.root = tk.Tk()
-        self.VERSION = "v4.1.8"
+        self.VERSION = "v4.1.9"
         self._update_title()
         self.root.geometry(f"{self.WIN_W}x{self.WIN_H_STARTUP}")
         self.root.configure(bg=self.colors["bg"])
