@@ -1,4 +1,5 @@
 import sys
+import os
 import threading
 import time
 import json
@@ -93,7 +94,40 @@ class KomomoSystem:
     def on_query_received(self, text):
         """GUIやSTTからの入力を中継する司令塔"""
         print(f"[Main] ユーザー入力: {text}")
+
+        # --- 1. 歌唱リクエストの即時判定（デグレ修正） ---
+        if "歌って" in text or "うたって" in text:
+            print("[Main] 歌唱リクエストを検知。LLMをスキップして直接歌唱モードに入ります。")
+            
+            song_dir = "./songs"
+            if os.path.exists(song_dir):
+                # songsフォルダ内のWAVファイルをリストアップ
+                songs = [f for f in os.listdir(song_dir) if f.endswith(".wav")]
+                if songs:
+                    # 昨日の仕様：まずはフォルダ内の最初の曲をターゲットにする
+                    song_path = os.path.join(song_dir, songs[0])
+                    print(f"[Main] 歌唱ファイル選択: {song_path}")
+
+                    lyrics_path = song_path.rsplit(".", 1)[0] + ".txt"
+                    if os.path.exists(lyrics_path):
+                        with open(lyrics_path, "r", encoding="utf-8") as f:
+                            lyrics = f.read()
+                            print(f"[Main] 歌詞を読み込みました: {os.path.basename(lyrics_path)}")
         
+                            # 既存のメソッド名 _show_lyric_window を呼び出す
+                            if hasattr(self.gui, "_show_lyric_window"):
+                                self.gui._show_lyric_window(lyrics)
+                                 
+                    # VoicePluginに直接歌唱を依頼（LLMを介さない）
+                    if hasattr(self.voice, "sing"):
+                        self.voice.sing(song_path)
+                        # 修正: メソッド名を send_to_unity に合わせる
+                        if hasattr(self.ego, "send_to_unity"):
+                            self.ego.send_to_unity(20) # 歌唱用の表情
+                        return # ここで終了！LLMには行かない
+                else:
+                    print("[Main] 歌唱ファイルが見つかりません。通常応答に切り替えます。")
+
         # --- A. アプリ起動チェック ---
         apps_raw = self.config.get("apps_raw", "")
         for line in apps_raw.split("\n"):

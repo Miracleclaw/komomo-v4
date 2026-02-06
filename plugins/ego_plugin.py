@@ -29,13 +29,12 @@ class EgoPlugin:
         会話: ユーザー「{user_text}」 こもも「{ai_response}」
         出力形式: {{"emotion_stats": {{"joy": 0, "trust": 0, "tension": 0}}, "emotion_id": "12", "inner_monologue": "..."}}
         """
-
         try:
             res = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {key}"},
                 json={
-                    "model": "meta-llama/llama-3.3-70b-instruct:free",
+                    "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
                     "messages": [{"role": "user", "content": prompt}],
                     "response_format": {"type": "json_object"}
                 }, timeout=15
@@ -44,7 +43,7 @@ class EgoPlugin:
                 data = json.loads(res.json()["choices"][0]["message"]["content"])
                 print(f"[Ego] 分析結果受信: ID={data.get('emotion_id')}")
                 self._save_memory(data)
-                self._send_to_unity(data.get("emotion_id", "12"))
+                self.send_to_unity(data.get("emotion_id", "12"))
         except Exception as e:
             print(f"[Ego] 感情分析エラー (無視): {e}")
 
@@ -53,21 +52,19 @@ class EgoPlugin:
         with open(self.memory_path, "w", encoding="utf-8") as f:
             json.dump(self.memory, f, indent=4, ensure_ascii=False)
 
-# plugins/ego_plugin.py の _send_to_unity 修正版
-
-def _send_to_unity(self, emotion_id):
-        """UnityへJSON形式で表情IDを送信"""
+    def send_to_unity(self, emotion_id):
+        """UnityへJSON形式で表情IDを送信（歌唱用など外部からの呼び出し用）"""
         try:
-            # Unityが待ち受けているURL
             unity_url = "http://127.0.0.1:58080/play/"
-            # Unity側のRequestJsonクラスに合わせたJSONペイロード
             payload = {
                 "action": "expression",
                 "index": int(emotion_id)
             }
-            # POSTで送信
-            import requests
             requests.post(unity_url, json=payload, timeout=5)
             print(f"[Ego] Unityへ表情ID {emotion_id} を送信しました")
         except Exception as e:
             print(f"[Ego] Unity表情送信エラー: {e}")
+
+    def _send_to_unity(self, emotion_id):
+        """内部互換性用の別名"""
+        self.send_to_unity(emotion_id)

@@ -16,6 +16,22 @@ class VoicePlugin:
         # 不要になったpygameの初期化を削除
         print("[VoicePlugin] v4.3.2 Initialized (Unity-Sync Mode)")
 
+    def sing(self, song_path):
+        """指定されたWAVファイルを直接UnityへHTTP POST送信する"""
+        try:
+            print(f"[Voice] 歌唱データをUnityへ送信開始: {song_path}")
+            with open(song_path, "rb") as f:
+                song_data = f.read()
+            
+            # Unity側のポート 58080 へ送信
+            res = requests.post(self.unity_url, data=song_data, timeout=15)
+            if res.status_code == 200:
+                print("[Voice] Unityへ歌唱データの送信に成功しました。")
+            else:
+                print(f"[Voice] Unity送信エラー: HTTP {res.status_code}")
+        except Exception as e:
+            print(f"[Voice] 歌唱送信中に例外が発生: {e}")
+
     def speak(self, text):
         if not text:
             return
