@@ -5,95 +5,118 @@ import speech_recognition as sr
 import whisper
 import os
 import torch
+import traceback
 
 hookimpl = pluggy.HookimplMarker("komomo")
 
 class STTPlugin:
     def __init__(self, config, gui):
         self.config = config
+        self.gui = gui
         self.pm = None
         self.recognizer = sr.Recognizer()
+        
+        # 感度設定
+        self.recognizer.dynamic_energy_threshold = True
+        self.recognizer.pause_threshold = 1.2  # 少し長めに待つ
+        
         self.model_size = config.get("whisper_model", "small")
         self.model = None
-        self.is_running = True
         self.is_recording = False
-        self.stop_requested = False
-        # マイクをインスタンス変数として保持し、何度も生成されないようにする
         self.source = sr.Microphone()
+        print(f"[STT] インスタンス生成完了")
+        # ★ on_plugin_loadedを待たずにロードを開始する
+        threading.Thread(target=self._load_model, daemon=True).start()
 
     def on_plugin_loaded(self, pm):
         self.pm = pm
-        threading.Thread(target=self._load_model_and_loop, daemon=True).start()
+        print(f"[STT] PluginManagerをセットしました")
 
-    def _load_model_and_loop(self):
-        print(f"[STT] Whisperモデル({self.model_size})を読み込んでいます...")
+    def _load_model(self):
+        print(f"[STT] Whisperモデル({self.model_size})ロード開始...")
         device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = whisper.load_model(self.model_size, device=device)
-        print(f"[STT] 準備完了。")
-
-        while self.is_running:
-            if self.is_recording:
-                self._record_and_transcribe()
-            else:
-                time.sleep(0.1)
+        print(f"[STT] モデルロード完了。マイク入力準備OK。")
 
     @hookimpl
-    def start_recording(self):
-        self.stop_requested = False
-        self.is_recording = True
-
-    @hookimpl
-    def stop_recording(self):
-        self.stop_requested = True
-
-    def _record_and_transcribe(self):
-        print("[STT] 録音開始 (最大30秒)...")
-        audio_data_list = []
-        
-        # 修正：listen_in_background に直接 self.source を渡す
-        # これにより内部で適切にコンテキスト管理が行われ、二重オープンを防げるよ
-        stop_listening = self.recognizer.listen_in_background(
-            self.source, 
-            lambda r, a: audio_data_list.append(a)
-        )
-        
-        start_time = time.time()
-        while not self.stop_requested:
-            if time.time() - start_time > 30:
-                print("[STT] 30秒制限により自動停止します。")
-                break
-            time.sleep(0.05)
-        
-        # 録音停止
-        stop_listening(wait_for_stop=False)
-        self.is_recording = False
-        
-        if not audio_data_list:
-            print("[STT] 音声データが検出されませんでした。")
+    def on_start_recording_requested(self):
+        if self.is_recording:
             return
-        
-        print("[STT] 録音完了。解析中...")
-        combined_raw = b"".join([a.get_raw_data() for a in audio_data_list])
-        combined_audio = sr.AudioData(
-            combined_raw,
-            audio_data_list[0].sample_rate,
-            audio_data_list[0].sample_width
-        )
-        
-        path = "temp_stt.wav"
-        with open(path, "wb") as f:
-            f.write(combined_audio.get_wav_data())
-        
+        print("[STT] 録音開始リクエストを受信 -> 録音スレッド起動")
+        self.is_recording = True
+        # ボタンが押されたら、その都度録音処理をスレッドで走らせる
+        threading.Thread(target=self._record_process, daemon=True).start()
+
+    @hookimpl
+    def on_stop_recording_requested(self):
+        # 今回は「無音検知」または「30秒」で自動停止するため、
+        # ここではフラグ管理のみ（必要なら強制停止ロジックを組む）
+        print("[STT] 録音停止リクエストを受信 (自動停止を待ちます)")
+        self.is_recording = False
+
+    def _record_process(self):
+        """録音から解析までの一連のフロー"""
+        print("[STT] >>> 録音フェーズ開始")
+        if hasattr(self.gui, "update_status"):
+            self.gui.update_status("きいてるよ... 🎤")
+
         try:
+            with self.source as source:
+                # 最初の0.5秒で環境音に慣らす
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                print("[STT] 聴取中... (話し終わると自動で解析します)")
+                
+                # phrase_time_limit: 最大30秒
+                # timeout: 何も聞こえないまま5秒経ったら終了
+                audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=30)
+                
+            print(f"[STT] 録音終了 (データ受信: {len(audio.get_wav_data())} bytes)")
+            self._transcribe_and_send(audio)
+
+        except sr.WaitTimeoutError:
+            print("[STT] タイムアウト: 音声が検知されませんでした")
+        except Exception as e:
+            print(f"[STT] 録音エラー: {e}")
+            traceback.print_exc()
+        finally:
+            self.is_recording = False
+            if hasattr(self.gui, "update_status"):
+                self.gui.update_status("スタンバイ OK ✨")
+
+    def _transcribe_and_send(self, audio):
+        """Whisper解析とメインへの送信"""
+        # --- ↓ モデルがまだロード中の場合の待機を追加 ↓ ---
+        if self.model is None:
+            print("[STT] Whisperモデルのロードを待機しています...")
+            if hasattr(self.gui, "update_status"):
+                self.gui.update_status("準備中... ⏳")
+            while self.model is None:
+                time.sleep(0.5)
+        
+        print("[STT] Whisper解析開始...")
+        if hasattr(self.gui, "update_status"):
+            self.gui.update_status("考え中... ⏳")
+
+        path = "temp_stt.wav"
+        try:
+            with open(path, "wb") as f:
+                f.write(audio.get_wav_data())
+            
             result = self.model.transcribe(path, language="ja")
             text = result["text"].strip()
+            if text:
+                print(f"[STT] 認識結果: 「{text}」")
+                if self.pm:
+                    print(f"[STT] -> PluginManager経由でメインに送信します")
+                    self.pm.hook.on_query_received(text=text)
+                else:
+                    # ここが原因の可能性大！
+                    print(f"[STT] !! 警告 !! self.pm が None です。送信に失敗しました。")
+            else:
+                print("[STT] 認識結果が空です") 
+
         except Exception as e:
             print(f"[STT] 解析エラー: {e}")
-            text = ""
         finally:
             if os.path.exists(path):
                 os.remove(path)
-
-        if text and self.pm:
-            print(f"[STT] 認識結果: {text}")
-            self.pm.hook.on_query_received(text=text)

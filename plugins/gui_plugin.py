@@ -159,16 +159,22 @@ class GUIPlugin:
             self.is_recording_ui = True
             self.status_var.set("🔴 録音中...")
             self.btn_rec.config(relief="sunken", bg="#FFC0CB")
-            if self.pm:
-                self.pm.hook.start_recording()
+            if hasattr(self.pm.hook, "on_start_recording_requested"):
+                self.pm.hook.on_start_recording_requested()
+            else:
+                print("[GUI] Error: on_start_recording_requested が見つかりません")
+            #---------------------------
+            self.status_var.set("きいてるよ... ♡")
 
     def _on_mic_released(self, event):
         if self.is_recording_ui:
             self.is_recording_ui = False
             self.status_var.set("解析中... 🔍")
             self.btn_rec.config(relief="flat", bg=self.colors["bg"])
-            if self.pm:
-                self.pm.hook.stop_recording()
+            if hasattr(self.pm.hook, "on_stop_recording_requested"):
+                self.pm.hook.on_stop_recording_requested()
+            else:
+                print("[GUI] Error: on_stop_recording_requested が見つかりません")
 
     def _update_title(self):
         user_name = self.config.get("user_name", "ユーザー")

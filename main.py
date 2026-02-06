@@ -83,10 +83,12 @@ class KomomoSystem:
 
         threading.Thread(target=safety_launcher, daemon=True).start()
 
+        self.stt.on_plugin_loaded(self.pm)
+
         # 6. 処理ループスレッド
         self.process_thread = threading.Thread(target=self._main_processing_loop, daemon=True)
         self.process_thread.start()
-    
+   
     @pluggy.HookimplMarker("komomo")
     def on_query_received(self, text):
         """GUIやSTTからの入力を中継する司令塔"""
