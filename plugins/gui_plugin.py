@@ -26,14 +26,15 @@ class GUIPlugin:
         self.assets = {} 
         self.is_log_visible = False
         self.is_recording_ui = False
-        self.lyric_win = None
+        self.lyric_window = None  # 変数名を統一して初期化
+        self.status_var = None
         
         self.WIN_W = 480
         self.WIN_H_STARTUP = 640   
         self.WIN_H_EXPANDED = 920
 
         self.colors = {
-            "bg": "#FFF0F5",
+            "bg": "#FFF0F5", # 全体背景：薄ピンク
             "fg_text": "#555555",
             "status_fg": "#4169E1",
             "input_bg": "#FFFFFF",
@@ -55,6 +56,7 @@ class GUIPlugin:
 
     @hookimpl
     def on_llm_response_generated(self, response_text: str):
+        # 歌詞データが含まれる場合の処理
         if response_text.startswith("Lyric:"):
             lyrics = response_text.replace("Lyric:", "").strip()
             self.msg_queue.put(("lyrics", lyrics))
@@ -65,18 +67,14 @@ class GUIPlugin:
             self.msg_queue.put(("status", "おしゃべり中 🗣️"))
 
     def update_status(self, text):
-        """外部（LLM等）からGUIのステータス表示を更新するための窓口"""
-        if hasattr(self, 'status_var') and self.status_var:
-            # TkinterのStringVarを更新（スレッドセーフを考慮してafterを使うのが理想的）
-            if self.root:
-                self.root.after(0, lambda: self.status_var.set(text))
-            else:
-                self.status_var.set(text)
+        """外部からステータス表示を更新する"""
+        if self.root and self.status_var:
+            self.root.after(0, lambda: self.status_var.set(text))
             print(f"[GUI] Status Update: {text}")
 
     def _run_gui(self):
         self.root = tk.Tk()
-        self.VERSION = "v4.1.9"
+        self.VERSION = "v4.1.9.7"
         self._update_title()
         self.root.geometry(f"{self.WIN_W}x{self.WIN_H_STARTUP}")
         self.root.configure(bg=self.colors["bg"])
@@ -119,12 +117,11 @@ class GUIPlugin:
         if "mic" in self.assets: self.btn_rec.config(image=self.assets["mic"])
         self.btn_rec.pack(pady=5)
         
-        # --- 可愛い説明ラベル ---
-        self.lbl_guide = tk.Label(self.root, text="ぎゅっと押している間、きかせてね ♡", 
+        self.lbl_guide = tk.Label(self.root, text="ボタンを一回クリックして、きかせてね ♡", 
                                   font=self.small_font, fg="#FF69B4", bg=self.colors["bg"])
         self.lbl_guide.pack(pady=(0, 10))
 
-        # --- 長押しイベントのバインド ---
+        # 長押しイベントバインド
         self.btn_rec.bind("<ButtonPress-1>", self._on_mic_pressed)
         self.btn_rec.bind("<ButtonRelease-1>", self._on_mic_released)
 
@@ -153,18 +150,14 @@ class GUIPlugin:
         self.root.after(100, self._check_queue)
         self.root.mainloop()
 
-    # --- 録音制御ロジック (Push-to-Talk) ---
+    # --- 録音制御 ---
     def _on_mic_pressed(self, event):
         if not self.is_recording_ui:
             self.is_recording_ui = True
-            self.status_var.set("🔴 録音中...")
+            self.status_var.set("きいてるよ... ♡")
             self.btn_rec.config(relief="sunken", bg="#FFC0CB")
             if hasattr(self.pm.hook, "on_start_recording_requested"):
                 self.pm.hook.on_start_recording_requested()
-            else:
-                print("[GUI] Error: on_start_recording_requested が見つかりません")
-            #---------------------------
-            self.status_var.set("きいてるよ... ♡")
 
     def _on_mic_released(self, event):
         if self.is_recording_ui:
@@ -173,8 +166,6 @@ class GUIPlugin:
             self.btn_rec.config(relief="flat", bg=self.colors["bg"])
             if hasattr(self.pm.hook, "on_stop_recording_requested"):
                 self.pm.hook.on_stop_recording_requested()
-            else:
-                print("[GUI] Error: on_stop_recording_requested が見つかりません")
 
     def _update_title(self):
         user_name = self.config.get("user_name", "ユーザー")
@@ -190,31 +181,72 @@ class GUIPlugin:
             self.root.geometry(f"{self.WIN_W}x{self.WIN_H_EXPANDED}")
             self.is_log_visible = True
 
+    # --- 歌詞ウィンドウ制御 (スクロールバー実装版) ---
     def _show_lyric_window(self, lyrics):
-        if lyrics == "CLOSE":
-            if self.lyric_win: self.lyric_win.withdraw()
-            return
-        if self.lyric_win is None or not self.lyric_win.winfo_exists():
-            self.lyric_win = tk.Toplevel(self.root)
-            self.lyric_win.overrideredirect(True)
-            self.lyric_win.attributes("-topmost", True)
-            self.lyric_win.geometry("400x240+100+100")
-            self.lyric_win.configure(bg="#FFF0F5")
-            def start_move(e): self.lyric_win._x = e.x; self.lyric_win._y = e.y
-            def do_move(e):
-                x = self.lyric_win.winfo_x() + (e.x - self.lyric_win._x)
-                y = self.lyric_win.winfo_y() + (e.y - self.lyric_win._y)
-                self.lyric_win.geometry(f"+{x}+{y}")
-            self.lyric_win.bind("<Button-1>", start_move); self.lyric_win.bind("<B1-Motion>", do_move)
-            self.lyric_win.bind("<Button-3>", lambda e: self.lyric_win.withdraw()) 
-            self.lyric_txt = tk.Text(self.lyric_win, font=("Meiryo", 10), bg="#FFF0F5", fg="#FF1493", bd=0, padx=20, pady=10, height=8)
-            self.lyric_txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            sb = tk.Scrollbar(self.lyric_win, command=self.lyric_txt.yview)
-            self.lyric_txt.config(yscrollcommand=sb.set); sb.pack(side=tk.RIGHT, fill=tk.Y)
-            self.lyric_txt.bind("<Button-1>", start_move); self.lyric_txt.bind("<B1-Motion>", do_move)
-        self.lyric_win.deiconify(); self.lyric_txt.config(state='normal'); self.lyric_txt.delete("1.0", tk.END)
-        self.lyric_txt.insert(tk.END, lyrics); self.lyric_txt.config(state='disabled')
+        """歌詞表示ウィンドウ：薄ピンク背景、メイリオ、小さめフォント、スクロール対応"""
+        if self.lyric_window:
+            try:
+                self.lyric_window.destroy()
+            except:
+                pass
 
+        self.lyric_window = tk.Toplevel(self.root)
+        self.lyric_window.title("歌詞カード")
+        self.lyric_window.geometry("350x450")
+        self.lyric_window.attributes("-topmost", True)
+        
+        bg_color = "#FFF0F5"  # LavenderBlush (薄ピンク)
+        self.lyric_window.configure(bg=bg_color)
+
+        lyric_font = ("Meiryo", 9)
+
+        # スクロールバーとテキストエリアを配置するためのフレーム
+        container = tk.Frame(self.lyric_window, bg=bg_color)
+        container.pack(expand=True, fill="both")
+
+        scrollbar = tk.Scrollbar(container)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # tk.Labelの代わりにtk.Textを使用してスクロール可能にする
+        self.lyric_text_area = tk.Text(
+            container, 
+            wrap=tk.WORD, 
+            bg=bg_color, 
+            fg="#FF69B4", 
+            font=lyric_font,
+            bd=0, 
+            padx=20, 
+            pady=20,
+            yscrollcommand=scrollbar.set
+        )
+        self.lyric_text_area.insert(tk.END, lyrics)
+        self.lyric_text_area.tag_configure("center", justify='center')
+        self.lyric_text_area.tag_add("center", "1.0", "end")
+        self.lyric_text_area.config(state=tk.DISABLED) # 読み取り専用
+        self.lyric_text_area.pack(side=tk.LEFT, expand=True, fill="both")
+
+        scrollbar.config(command=self.lyric_text_area.yview)
+        print("[GUI] 歌詞ウィンドウ（スクロール対応）を表示しました。")
+
+    def _close_lyric_window(self):
+        """歌詞表示ウィンドウをスレッドセーフに閉じる"""
+        if self.lyric_window:
+            try:
+                self.root.after(0, self._destroy_lyric_window)
+            except Exception as e:
+                print(f"[GUI] 閉鎖リクエストエラー: {e}")
+
+    def _destroy_lyric_window(self):
+        """メインスレッドで実際に破棄"""
+        if self.lyric_window:
+            try:
+                self.lyric_window.destroy()
+                self.lyric_window = None
+                print("[GUI] 歌詞ウィンドウを閉じました。")
+            except Exception as e:
+                print(f"[GUI] 破棄実行エラー: {e}")
+
+    # --- 共通処理 ---
     def _check_queue(self):
         try:
             while not self.msg_queue.empty():
@@ -235,7 +267,7 @@ class GUIPlugin:
     def _append_log(self, tag, text):
         self.chat_area.config(state='normal')
         ts = time.strftime("%H:%M")
-        if tag == "user": display = f"{text.replace('[User]','').strip()} ({ts})\n"
+        if tag == "user": display = f"{text.strip()} ({ts})\n"
         elif tag == "bot": display = f"[こもも]: {text} ({ts})\n"
         else: display = f"{text}\n"
         self.chat_area.insert(tk.END, display, tag); self.chat_area.see(tk.END); self.chat_area.config(state='disabled')
