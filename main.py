@@ -1,16 +1,11 @@
 """
 Komomo AI Assistant System - Core Launcher
-Version: v4.2.0
+Version: v4.3.0.12
 
 [役割]
 システムのメインエントリーポイント。
-各コンポーネント（STT, LLM, Ego, Voice, Song, GUI）の初期化、
-およびPluginManager(pluggy)によるイベント駆動型の統制を行います。
-
-[主な機能]
-- 各種プラグインの登録とライフサイクル管理
-- ユーザー入力(STT/GUI)の受け取りと、適切なプラグインへの配送
-- 歌唱中フラグ(is_singing_now)による会話の競合防止ガード
+回答生成時に「事実」「履歴」「関連思い出」を参考資料として注入しつつ、
+DBに直接的な答えがない場合にLLMが自律的に知識を活用できるよう、プロンプト構成を最適化。
 """
 import sys
 import os
@@ -40,7 +35,7 @@ from plugins.settings_plugin import Plugin as SettingsPlugin
 class KomomoSystem:
     def __init__(self):
         print("==========================================")
-        print("   Komomo AI Assistant System v4.2.0")
+        print("   Komomo AI Assistant System v4.3.0.12")
         print("==========================================")
         
         # 歌唱中フラグの初期化（SongPluginから参照・変更されます）
@@ -116,7 +111,7 @@ class KomomoSystem:
         """
         GUIやSTTからの入力を中継する司令塔
         """
-        # --- 追加：歌唱中はすべての入力を無視するガード ---
+        # --- 歌唱中はすべての入力を無視するガード ---
         if self.is_singing_now:
             print(f"[Main] 歌唱中のため応答をスキップします: {text[:10]}...")
             return
@@ -150,22 +145,50 @@ class KomomoSystem:
         return False
 
     def _handle_llm_conversation(self, text):
-        """会話処理の実行と各プラグインへの通知"""
-        # 現在使用中のモデル名を取得
+        """ハイブリッド記憶を活用した回答生成（自律知識活用版）"""
         model_name = getattr(self.llm, 'current_model', getattr(self.llm, 'model_type', 'LLM'))
         
         if hasattr(self.gui, "update_status"):
              self.gui.update_status(f"思考中...({model_name})")
 
         try:
-            response = self.llm.generate_response(text, self.instruction)
+            # --- 🚀 ハイブリッド記憶の抽出 ---
+            user_profile = self.ego.get_user_profile_summary()
+            recent_memories = self.ego.get_recent_memories(limit=5)
+            semantic_memories = ""
+            if hasattr(self.ego, "search_semantic_memories"):
+                semantic_memories = self.ego.search_semantic_memories(text, n_results=2)
+            
+            # --- 🚀 修正：記憶と自律知識のバランス調整用プロンプト ---
+            context_instruction = (
+                "\n[記憶と知識の取り扱い方針]\n"
+                "1. 下記の提供されたコンテキスト（あっきーの知識、過去の思い出）は、事実確認のための参考資料です。\n"
+                "2. もし提供されたコンテキストに直接的な答えやエピソードが含まれていない場合（例：昔話をして、面白い話をして等の依頼）は、"
+                "あなた自身が持つ広範な知識や創造力を駆使して、こももらしく楽しく自由に回答してください。\n"
+                "3. 記憶に縛られすぎて、単なる「思い出の確認」に終始しないよう注意してください。\n"
+            )
+            
+            # 4. すべてを合体させてプロンプトを構築
+            full_instruction = (
+                f"{self.instruction}\n"
+                f"{context_instruction}\n"
+                f"{user_profile}\n"
+                f"{recent_memories}\n"
+                f"{semantic_memories}"
+            )
+            
+            # 回答生成の実行
+            response = self.llm.generate_response(text, full_instruction)
+            
             if response:
                 user_name = self.config.get("user_name", "あなた")
                 final_res = response.replace("{{user}}", user_name)
                 
-                # フック通知：VoicePluginがこれを受けて発声し、EgoPluginが感情を分析します
+                # フック通知：各プラグインへの配送
                 self.pm.hook.on_llm_response_generated(response_text=final_res)
+                # 感情分析、事実抽出、および履歴保存（SQLite & ChromaDB）
                 self.ego.extract_info_from_dialogue(text, response)
+                
         except Exception as e:
             print(f"[Main] 回答生成エラー: {e}")
             traceback.print_exc()
@@ -179,7 +202,7 @@ class KomomoSystem:
 
     def run(self):
         """メインスレッドの維持"""
-        print("[System] システム稼働中。終了するには Ctrl+C を押してください。")
+        print("[System] システム稼働中. 終了するには Ctrl+C を押してください.")
         try:
             while self.is_running:
                 time.sleep(0.5)

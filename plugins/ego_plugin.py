@@ -1,165 +1,260 @@
 """
 Komomo System Plugin - Ego & Emotion Controller
-Version: v4.2.1.0
+Version: v4.3.0.13
 
 [役割]
-Llama 3.3 (OpenRouter) による感情分析と記憶管理。
-AIに対して使用可能な表情IDを厳格に制限し、勝手な数値(15等)の生成を抑制します。
-また、文字列で返答された場合もキーワードから適切にID:13やID:20へ導きます。
+感情分析とハイブリッド記憶管理。
+ユーザーの好みや事実を敏感に抽出する強化プロンプトを搭載。
+不正な感情ID（1, 102等）を排除し、厳格に 12, 13, 17, 20 に制限。
+旧来のJSONメモリ管理を廃止し、SQLite + ChromaDB に完全移行。
 """
 import json
 import requests
 import os
+import sqlite3
 import traceback
+from datetime import datetime
+import chromadb
 
 class EgoPlugin:
     def __init__(self, config, gui):
         self.config = config
         self.gui = gui
-        self.pm = None # PluginManager保持用
-        self.memory_path = "memory.json"
-        self.memory = self._load_memory()
-        print("[EgoPlugin] Initialized (OpenRouter / Llama 3.3 / Strict-ID Mode)")
+        self.pm = None 
+        self.db_path = "komomo_v4_memory.db"
+        
+        # 使用するOpenAIモデル（無料枠リスト内のモデルを指定）
+        self.openai_model = "gpt-4o-mini-2024-07-18"
+        
+        # 1. SQLite初期化
+        self._init_db()
+        
+        # 2. ChromaDB (ベクトルDB) 初期化
+        try:
+            # プロジェクトフォルダ内に chroma_db ディレクトリを作成しデータを永続化
+            self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
+            # キーワード検索モードでコレクションを取得/作成
+            self.collection = self.chroma_client.get_or_create_collection(name="komomo_memories")
+        except Exception as e:
+            print(f"[Ego] ChromaDB初期化失敗: {e}")
+        
+        print(f"[EgoPlugin] v4.3.0.13 Initialized (Clean Hybrid DB Mode)")
 
-    def on_plugin_loaded(self, pm):
-        """システムの状態を参照するためにPMを保持"""
-        self.pm = pm
-        print("[EgoPlugin] PluginManager connected.")
+    def _init_db(self):
+        """SQLiteテーブルの初期化"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''CREATE TABLE IF NOT EXISTS user_profile 
+                                (key TEXT PRIMARY KEY, value TEXT, updated_at TIMESTAMP)''')
+                cursor.execute('''CREATE TABLE IF NOT EXISTS system_status 
+                                (key TEXT PRIMARY KEY, value TEXT)''')
+                cursor.execute('''CREATE TABLE IF NOT EXISTS conversation_history 
+                                (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                                 user_text TEXT, ai_response TEXT, 
+                                 inner_monologue TEXT, emotion_id TEXT, 
+                                 created_at TIMESTAMP)''')
+                conn.commit()
+        except Exception as e:
+            print(f"[EgoPlugin] DB初期化エラー: {e}")
 
-    def _load_memory(self):
-        """メモリの読み込み（構造を保証する）"""
-        default_memory = {"user_data": {}, "last_emotion": {"joy": 50, "trust": 50, "tension": 20}}
-        if os.path.exists(self.memory_path):
-            try:
-                with open(self.memory_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if "last_emotion" not in data:
-                        data["last_emotion"] = default_memory["last_emotion"]
-                    if "user_data" not in data:
-                        data["user_data"] = {}
-                    return data
-            except:
-                return default_memory
-        return default_memory
+    def _get_search_keywords(self, text):
+        """OpenAIモデルを使って検索用のキーワード（意味タグ）を抽出する"""
+        key = self.config.get("openai_api_key")
+        if not key:
+            return text
+            
+        try:
+            res = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.openai_model,
+                    "messages": [
+                        {"role": "system", "content": "Extract 3-5 search keywords from the user input as a comma-separated list. Focus on entities, events, and topics."},
+                        {"role": "user", "content": text}
+                    ],
+                    "temperature": 0
+                }, timeout=10
+            )
+            if res.status_code == 200:
+                return res.json()["choices"][0]["message"]["content"]
+            else:
+                return text
+        except:
+            return text
+
+    def search_semantic_memories(self, query_text, n_results=2):
+        """今の話題に関連する過去の思い出を検索する"""
+        try:
+            # 検索キーワードを生成
+            search_tags = self._get_search_keywords(query_text)
+            
+            # ChromaDBから検索（テキストベースのマッチング）
+            results = self.collection.query(
+                query_texts=[search_tags],
+                n_results=n_results
+            )
+            
+            if not results or not results['documents'][0]:
+                return ""
+                
+            memory_context = "\n### 関連する過去の思い出 ###\n"
+            for doc in results['documents'][0]:
+                memory_context += f"・{doc}\n"
+            memory_context += "###########################\n"
+            return memory_context
+        except Exception as e:
+            print(f"[Ego] 記憶検索エラー: {e}")
+            return ""
+
+    def get_user_profile_summary(self):
+        """DBからプロフィールを取得"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT key, value FROM user_profile")
+                rows = cursor.fetchall()
+                if not rows: return ""
+                summary = "\n### あなたが覚えているあっきーの情報 ###\n"
+                for key, value in rows:
+                    summary += f"・{key}: {value}\n"
+                summary += "########################################\n"
+                return summary
+        except: return ""
+
+    def get_recent_memories(self, limit=5):
+        """DBから最新の会話履歴を取得"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT user_text, ai_response FROM conversation_history ORDER BY id DESC LIMIT ?', (limit,))
+                rows = cursor.fetchall()
+                if not rows: return ""
+                rows.reverse()
+                memory_text = "\n### 最近の二人の会話の思い出 ###\n"
+                for user, ai in rows:
+                    memory_text += f"あっきー: {user}\nこもも: {ai}\n"
+                memory_text += "##################################\n"
+                return memory_text
+        except: return ""
 
     def extract_info_from_dialogue(self, user_text, ai_response):
-        """OpenRouter (Llama 3.3) を使って感情分析"""
+        """分析と保存の実行"""
         key = self.config.get("openrouter_api_key")
         if not key: return
 
         model_id = "meta-llama/llama-3.3-70b-instruct"
+        
+        # 好み抽出を強化したプロンプト
+        prompt = f"""Extract data into JSON for "Komomo".
+        User says: "{user_text}"
+        Komomo responds: "{ai_response}"
 
-        # AIに勝手な数字を作らせないための厳格なプロンプト
-        prompt = f"""
-        Extract dialogue data into JSON format for the character "Komomo".
-        User "{user_text}", Komomo "{ai_response}"
+        ### 1. NEW INFO EXTRACTION (CRITICAL):
+        Identify any personal facts about the user (e.g., likes, dislikes, habits, occupation, preference).
+        Even small details like "likes baths" or "drinks coffee" must be extracted.
+        Format: "new_facts": {{"key": "value"}}
+        Example: "new_facts": {{"favorite_bath": "true", "coffee_style": "no sugar"}}
+        If no new info, return "new_facts": null.
 
-        ### EMOTION_ID RULES (STRICT):
-        Choose ONLY ONE ID from this list. DO NOT create new numbers or intermediate values:
-        - "13": Use for MUSIC, SINGING, or feeling very excited.
-        - "17": Use for general HAPPY or JOYFUL feelings.
-        - "12": Use for NORMAL or calm conversation.
-
-        Required JSON Format:
+        ### 2. EMOTION:
+        ID: 13(Music/Excited), 17(Happy), 12(Normal).
+        
+        ### Required JSON Format:
         {{
             "emotion_stats": {{"joy": 50, "trust": 50, "tension": 20}},
             "emotion_id": "12",
-            "inner_monologue": "text"
+            "inner_monologue": "text",
+            "new_facts": {{ "key": "value" }}
         }}
         """
-        
         try:
             res = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "HTTP-Referer": "http://localhost",
-                },
-                json={
-                    "model": model_id,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "response_format": {"type": "json_object"}
-                }, timeout=15
+                headers={"Authorization": f"Bearer {key}", "HTTP-Referer": "http://localhost"},
+                json={"model": model_id, "messages": [{"role": "user", "content": prompt}], "response_format": {"type": "json_object"}},
+                timeout=15
             )
-            
             if res.status_code == 200:
-                content = res.json()["choices"][0]["message"]["content"]
-                data = json.loads(content)
-                
-                # raw_id を取得 (小文字の文字列として処理)
+                data = json.loads(res.json()["choices"][0]["message"]["content"])
                 raw_val = str(data.get("emotion_id", "12")).lower()
-                
-                # --- 強力なパースロジックの呼び出し ---
                 final_id = self._robust_parse_id(raw_val)
-                
                 print(f"[Ego] Llama 3.3 受信: '{raw_val}' -> 最終決定={final_id}")
-                
-                # 表情送信を優先的に実行
                 self.send_to_unity(final_id)
+                self._save_to_db(user_text, ai_response, data, final_id)
+        except Exception as e:
+            print(f"[Ego] 分析失敗: {e}")
+
+    def _save_to_db(self, user_text, ai_response, data, final_id):
+        """SQLite + ChromaDB への永続化"""
+        try:
+            now = datetime.now().isoformat()
+            
+            # SQLite保存
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                new_stats = data.get("emotion_stats")
+                if new_stats:
+                    cursor.execute("INSERT OR REPLACE INTO system_status (key, value) VALUES (?, ?)", ("last_emotion", json.dumps(new_stats)))
+                cursor.execute('INSERT INTO conversation_history (user_text, ai_response, inner_monologue, emotion_id, created_at) VALUES (?, ?, ?, ?, ?)',
+                             (user_text, ai_response, data.get("inner_monologue"), str(final_id), now))
                 
-                try:
-                    self._save_memory(data)
-                except Exception as e:
-                    print(f"[Ego] メモリ保存エラー (無視): {e}")
-            else:
-                print(f"[Ego] OpenRouter Error: {res.status_code} {res.text}")
+                # 事実の保存とログ出力
+                new_facts = data.get("new_facts")
+                if isinstance(new_facts, dict) and new_facts:
+                    for k, v in new_facts.items():
+                        print(f"[Ego] ★新しい記憶を保存: {k} = {v}")
+                        cursor.execute("INSERT OR REPLACE INTO user_profile (key, value, updated_at) VALUES (?, ?, ?)", (k, str(v), now))
+                conn.commit()
+
+            # ChromaDB保存
+            mem_text = f"あっきー: {user_text}\nこもも: {ai_response}"
+            self.collection.add(
+                documents=[mem_text],
+                metadatas=[{"timestamp": now}],
+                ids=[f"mem_{datetime.now().timestamp()}"]
+            )
+            print("[Ego] ChromaDBに思い出を保存しました。")
 
         except Exception as e:
-            print(f"[Ego] 感情分析中に例外が発生しました: {e}")
-            traceback.print_exc()
+            print(f"[Ego] 保存エラー: {e}")
 
     def _robust_parse_id(self, raw_val):
-        """Llama 3.3 が返す 'happy_excitement' 等の単語を ID:13 へ翻訳する"""
-        
-        # 1. 歌唱中フラグを確認
+        """不正なID（1, 102等）を排除し、許可された値のみを返す"""
+        raw_val = raw_val.lower()
         is_singing = False
         if self.pm:
             for p in self.pm.get_plugins():
-                p_name = p.__class__.__name__
-                if p_name == "KomomoSystem":
-                    is_singing = getattr(p, "is_singing_now", False)
-                elif p_name == "SongPlugin":
-                    is_singing = is_singing or getattr(p, "is_singing", False)
+                if p.__class__.__name__ in ["KomomoSystem", "SongPlugin"]:
+                    is_singing = is_singing or getattr(p, "is_singing_now", False) or getattr(p, "is_singing", False)
 
-        # 2. キーワード救済 (Llamaの表現の揺らぎを吸収)
-        # 「歌」に関連するか、もしくは「幸せ・ワクワク」系の言葉が含まれていれば 13 にする
-        happy_keywords = ["song", "sing", "20", "happy", "excite", "joy", "楽"]
-        if any(keyword in raw_val for keyword in happy_keywords):
-            if is_singing:
-                return 20 # 歌唱中なら本番ポーズ
-            else:
-                print(f"[Ego] ★救済発動: '{raw_val}' からポジティブな感情を検知 -> 音符(13)に変更")
-                return 13 # 雑談なら音符
+        # 1. 歌唱中キーワード判定
+        if any(k in raw_val for k in ["song", "sing", "20"]):
+            return 20 if is_singing else 13
+        
+        # 2. ポジティブキーワード判定
+        if any(k in raw_val for k in ["happy", "excite", "joy", "楽"]):
+            return 17
 
-        # 3. 通常の数値変換
+        # 3. 数値チェックとガード
         try:
-            target_id = int(raw_val)
-            # 歌唱中でないのに 20 が選ばれた場合は 13 に振替
-            if target_id == 20 and not is_singing:
-                return 13
-            return target_id
+            t_id = int(raw_val)
+            if t_id in [12, 13, 17, 20]:
+                if t_id == 20 and not is_singing: return 13
+                return t_id
+            return 12
         except:
-            # 数値変換できない場合はデフォルトの12
             return 12
 
-    def _save_memory(self, data):
-        """分析データの保存"""
-        new_stats = data.get("emotion_stats")
-        if new_stats:
-            self.memory["last_emotion"] = new_stats
-            
-        with open(self.memory_path, "w", encoding="utf-8") as f:
-            json.dump(self.memory, f, indent=4, ensure_ascii=False)
-
     def send_to_unity(self, emotion_id):
-        """Unityへ表情IDを送信"""
         try:
-            unity_url = "http://127.0.0.1:58080/play/"
-            payload = {"action": "expression", "index": int(emotion_id)}
-            requests.post(unity_url, json=payload, timeout=5)
+            requests.post("http://127.0.0.1:58080/play/", json={"action": "expression", "index": int(emotion_id)}, timeout=5)
             print(f"[Ego] Unityへ表情ID {emotion_id} を送信しました")
-        except Exception as e:
-            print(f"[Ego] Unity表情送信エラー: {e}")
+        except: pass
 
-    def _send_to_unity(self, emotion_id):
-        self.send_to_unity(emotion_id)
+    def on_plugin_loaded(self, pm):
+        self.pm = pm
