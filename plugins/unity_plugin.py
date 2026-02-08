@@ -1,3 +1,16 @@
+"""
+Komomo System Plugin - Unity Bridge (Socket)
+Version: v4.2.0
+
+[役割]
+Unity上の「こもも（3Dモデル）」と通信を行うための架け橋プラグイン。
+表情、モーション、リップシンク指示をバイナリ形式で送信します。
+
+[主な機能]
+- TCP/UDPソケットを利用したUnityとの接続維持
+- 感情パラメータに基づく表情IDの転送
+- 歌唱モーションや演出指示の同期送信
+"""
 import pluggy
 import requests
 import json

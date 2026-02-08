@@ -1,3 +1,17 @@
+"""
+Komomo System Plugin - Speech To Text (STT)
+Version: v4.2.0
+
+[役割]
+こももの「耳」となるプラグイン。
+マイクからの音声をリアルタイムで監視し、Whisperモデルを使用して
+テキストに変換します。
+
+[主な機能]
+- VAD（音声区間検出）による自動録音・解析
+- Whisperモデルを利用した高精度な音声認識
+- コンサートモード中などの特定条件下での入力抑制（メイン側と連動）
+"""
 import pluggy
 import threading
 import time

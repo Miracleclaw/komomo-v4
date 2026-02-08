@@ -1,3 +1,16 @@
+"""
+Komomo System Core - Plugin Host Engine
+Version: v4.2.0
+
+[役割]
+PluginManagerの生成と、プラグインの動的ロードを担当する基盤モジュール。
+`main.py` から呼び出され、プラグイン間の通信（Hook）を可能にします。
+
+[主な機能]
+- 指定ディレクトリからのプラグイン自動検出・ロード
+- hookspec（規約）とhookimpl（実装）の紐付け管理
+- プラグイン読み込み時のエラーハンドリング
+"""
 import pluggy
 import importlib
 import pkgutil

@@ -133,5 +133,11 @@
         "emotion": "happy",
         "inner_monologue": "あっきーのこと、また一つ詳しくなっちゃった♡",
         "curiosity_target": "お仕事の内容"
-    }
+    },
+    "last_emotion": {
+        "joy": 50,
+        "trust": 50,
+        "tension": 20
+    },
+    "user_data": {}
 }

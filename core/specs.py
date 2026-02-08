@@ -1,3 +1,16 @@
+"""
+Komomo System Core - Plugin Hook Specifications
+Version: v4.2.0
+
+[役割]
+このシステムにおける「プラグインが実装すべきメソッド（Hook）」を定義するインターフェース。
+ここでの定義に基づいて、各プラグインが連携動作します。
+
+[主な機能]
+- 会話、音声合成、描画、Unity送信等のイベント定義
+- 各Hookの引数と戻り値の形式指定
+- システム全体の拡張ポイントの定義
+"""
 import pluggy
 
 hookspec = pluggy.HookspecMarker("komomo")

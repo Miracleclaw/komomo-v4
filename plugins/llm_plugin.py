@@ -1,3 +1,17 @@
+"""
+Komomo System Plugin - LLM Language Engine
+Version: v4.2.0
+
+[役割]
+こももの「知能」を司るプラグイン。
+GeminiやGroqなどの外部APIと連携し、キャラクター設定に基づいた
+自然な応答テキストを生成します。
+
+[主な機能]
+- 複数モデル（Gemini/Groq）の切り替えとエラーハンドリング
+- キャラクター設定（character.txt）を反映したプロンプト構築
+- クォータ制限時の自動フォールバック処理
+"""
 import requests
 import json
 import re

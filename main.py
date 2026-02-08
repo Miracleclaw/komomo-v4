@@ -1,3 +1,17 @@
+"""
+Komomo AI Assistant System - Core Launcher
+Version: v4.2.0
+
+[役割]
+システムのメインエントリーポイント。
+各コンポーネント（STT, LLM, Ego, Voice, Song, GUI）の初期化、
+およびPluginManager(pluggy)によるイベント駆動型の統制を行います。
+
+[主な機能]
+- 各種プラグインの登録とライフサイクル管理
+- ユーザー入力(STT/GUI)の受け取りと、適切なプラグインへの配送
+- 歌唱中フラグ(is_singing_now)による会話の競合防止ガード
+"""
 import sys
 import os
 import threading

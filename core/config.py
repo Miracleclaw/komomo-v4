@@ -1,3 +1,16 @@
+"""
+Komomo System Core - Configuration Manager
+Version: v4.2.0
+
+[役割]
+システム全体の設定値を管理するモジュール。
+APIキー、パス、動作パラメータ（音量やしきい値等）を一元的に保持します。
+
+[主な機能]
+- 各種設定ファイル（JSON等）の読み込みと書き出し
+- デフォルト設定の定義とバリデーション
+- 各プラグインが参照する共有パラメータの提供
+"""
 import os
 import sys
 import json

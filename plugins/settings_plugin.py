@@ -1,3 +1,15 @@
+"""
+Komomo System Plugin - Runtime Settings UI
+Version: v4.2.0
+
+[役割]
+動作中のシステム設定を変更するためのUIを提供するプラグイン。
+音量や感度などをリアルタイムで調整可能にします。
+
+[主な機能]
+- 設定変更用スライダーやチェックボックスの提供
+- 変更されたパラメータの `core/config.py` への反映
+"""
 import pluggy
 import tkinter as tk
 from tkinter import ttk

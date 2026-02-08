@@ -1,3 +1,16 @@
+"""
+Komomo System Plugin - Text To Speech (TTS) Interface
+Version: v4.2.0
+
+[役割]
+テキストを音声に変換する外部エンジン（VoiceVox等）との仲介プラグイン。
+生成された音声データのバッファ管理を行います。
+
+[主な機能]
+- 音声合成エンジンへのリクエスト送信
+- 話速、ピッチ、イントネーションのパラメータ制御
+- 合成完了後の音声データ受け渡し
+"""
 import re
 import pluggy
 import requests

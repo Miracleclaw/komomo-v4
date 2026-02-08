@@ -1,3 +1,16 @@
+"""
+Komomo System Plugin - Tkinter GUI Interface
+Version: v4.2.0
+
+[役割]
+こももの視覚的インターフェース（ウィンドウ）を提供するプラグイン。
+歌詞の表示、会話履歴の閲覧、ユーザー入力を担当します。
+
+[主な機能]
+- Tkinterによるメインウィンドウおよび歌詞ウィンドウ（スクロール付）の生成
+- 歌唱中の歌詞リアルタイム表示
+- ユーザーからのテキスト入力（Enterキー送信）のハンドリング
+"""
 import pluggy
 import tkinter as tk
 from tkinter import scrolledtext, font

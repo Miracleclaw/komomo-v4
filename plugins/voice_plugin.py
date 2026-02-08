@@ -1,3 +1,17 @@
+"""
+Komomo System Plugin - Voice Synthesis & Unity Sync
+Version: v4.2.0
+
+[役割]
+こももの「声」と「Unity通信」を制御するプラグイン。
+VoiceVoxでの音声合成、および生成した音声・指示バイナリの
+Unity側へのソケット送信を担当します。
+
+[主な機能]
+- VoiceVox APIを利用したテキストからの音声合成
+- 音声バイナリデータのUnityへのリアルタイム送信
+- 歌唱データ（WAV）の転送および再生指示
+"""
 import requests
 import json
 import os
